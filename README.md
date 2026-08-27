@@ -109,22 +109,17 @@ The plugin appears in your Omarchy bar. You can customize its position in `~/.co
 }
 ```
 
-### Optional Settings
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `apiToken` | string | *(token file)* | Override the REST API token |
+| `pollIntervalSec` | integer | 15 | How often to poll the API (seconds, minimum 5) |
+| `maxTitleLength` | integer | 32 | Max current-task title length in the bar |
 
-You can add optional settings in the plugin's entry in `shell.json`:
+## Security
 
-```json
-{
-  "id": "apsingh.super-productivity",
-  "apiToken": "your-custom-token-here",
-  "pollIntervalSec": 30,
-  "maxTitleLength": 32
-}
-```
+Plugins run unsandboxed with your user permissions. The token file grants full access to your Super Productivity data — do not share it.
 
-- `apiToken` - Override the default token location (default: reads from `~/.config/superProductivity/local-rest-api-token`)
-- `pollIntervalSec` - How often to sync with Super Productivity API (default: 30 seconds)
-- `maxTitleLength` - Maximum task title length in bar display (default: 32 characters)
+The token is never placed in a process argument list (readable by other local processes via `/proc`). `curl` reads it from a private config file (`$XDG_RUNTIME_DIR/apsingh-super-productivity-curl.conf`, mode 0600), and token file reads and API responses are size- and time-bounded.
 
 ## Usage
 
