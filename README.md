@@ -73,6 +73,24 @@ omarchy plugin enable apsingh.super-productivity
 omarchy restart shell
 ```
 
+## Removal
+
+### Via Omarchy Plugin Manager
+
+```bash
+omarchy plugin remove apsingh.super-productivity
+```
+
+### Manual Removal
+
+```bash
+# Remove the plugin directory
+rm -rf ~/.config/omarchy/plugins/apsingh.super-productivity
+
+# Restart the shell
+omarchy restart shell
+```
+
 ## Configuration
 
 The plugin appears in your Omarchy bar. You can customize its position in `~/.config/omarchy/shell.json`:
