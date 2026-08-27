@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "apsingh.super-productivity",
+  "name": "Super Productivity",
+  "version": "0.1.0",
+  "author": "apsingh",
+  "license": "MIT",
+  "description": "Task management for the bar, backed by Super Productivity's local REST API",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Super Productivity",
+    "description": "Current task label with a popup to browse, start, complete and add today's tasks",
+    "category": "Tasks",
+    "allowMultiple": false,
+    "defaultSection": "center"
+  }
+}
