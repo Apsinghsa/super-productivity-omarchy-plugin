@@ -6,10 +6,16 @@ import Quickshell.Io
 // The Bearer token is read from the app's data folder; it can be
 // overridden per-widget with the "apiToken" setting in shell.json.
 //
-// Security: the token is never placed in any process argv (visible to
-// other local processes via procfs). curl reads it from a private
-// config file instead, and every read (token file, API response) is
-// size- and time-bounded.
+// Security:
+//  - The token never appears in any process argv (procfs-visible). curl reads
+//    it from a config file written by write-auth-conf.sh: private 0700 dir,
+//    randomly named 0600 file, fsync, atomic rename, refuses unsafe locations.
+//  - The token is strictly validated (8-128 chars of [A-Za-z0-9_.-]), so no
+//    newline, quote or control can inject curl config directives.
+//  - Every read (token file, API response) is size- and time-bounded, and API
+//    responses are additionally sanitized into a bounded schema (task/subtask
+//    counts, id/title lengths, control-char and markup stripping) before they
+//    reach QML models.
 Item {
   id: root
 
@@ -19,13 +25,23 @@ Item {
   property string overrideToken: ""
 
   readonly property string tokenFilePath: Quickshell.env("HOME") + "/.config/superProductivity/local-rest-api-token"
-  readonly property string authConfPath: (Quickshell.env("XDG_RUNTIME_DIR") || Quickshell.env("HOME") + "/.cache")
-    + "/apsingh-super-productivity-curl.conf"
+  readonly property string authBaseDir: Quickshell.env("XDG_RUNTIME_DIR") || Quickshell.env("HOME") + "/.cache"
+  readonly property string authConfDir: root.authBaseDir + "/apsingh-super-productivity"
+  readonly property string authConfPath: root.authConfDir + "/curl.conf"
+  readonly property string authScriptPath: decodeURIComponent(Qt.resolvedUrl("write-auth-conf.sh").toString().replace(/^file:\/\//, ""))
 
   onOverrideTokenChanged: {
-    if (overrideToken !== "") root.token = overrideToken
-    writeAuthConf()
+    if (overrideToken !== "" && root.validToken(overrideToken)) {
+      root.token = overrideToken
+      writeAuthConf()
+    } else if (overrideToken !== "") {
+      console.warn("[super-productivity] apiToken override rejected: expected 8-128 chars of [A-Za-z0-9_.-]")
+    }
     if (overrideToken === "") root.readToken()
+  }
+
+  function validToken(value) {
+    return /^[A-Za-z0-9_.-]{8,128}$/.test(value)
   }
 
   // ---- Bounded token read ----
@@ -67,6 +83,10 @@ Item {
   function applyToken(text) {
     var value = text.trim()
     if (value === "" || root.overrideToken !== "") return
+    if (!root.validToken(value)) {
+      console.warn("[super-productivity] token file rejected: expected 8-128 chars of [A-Za-z0-9_.-]")
+      return
+    }
     if (value !== root.token) {
       root.token = value
       writeAuthConf()
@@ -74,26 +94,39 @@ Item {
   }
 
   // ---- curl auth config file ----
-  // curl reads the Authorization header from this file (-K), so the token
-  // never appears in argv. Written 0600 inside $XDG_RUNTIME_DIR (0700).
-  FileView {
-    id: authConf
+  // write-auth-conf.sh receives the token on stdin (never argv), validates
+  // it, and writes it atomically into a verified-private directory.
+  component AuthWriter: Process {
+    id: w
 
-    path: root.authConfPath
-    preload: false
-    blockWrites: true
-    printErrors: false
+    stdinEnabled: true
+    property string errText: ""
+
+    stderr: StdioCollector {
+      onStreamFinished: w.errText = text
+    }
+
+    onStarted: w.write(root.token + "\n")
+
+    onExited: function(code) {
+      if (code !== 0) {
+        console.warn("[super-productivity] auth config write failed:", w.errText.trim())
+      }
+      w.destroy()
+    }
   }
 
-  Process {
-    id: chmodProc
+  Component {
+    id: authWriterFactory
+
+    AuthWriter {}
   }
 
   function writeAuthConf() {
-    var escaped = root.token.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
-    authConf.setText('header = "Authorization: Bearer ' + escaped + '"\n')
-    chmodProc.command = ["chmod", "600", root.authConfPath]
-    chmodProc.running = true
+    if (!root.validToken(root.token)) return
+    var proc = authWriterFactory.createObject(root)
+    proc.command = [root.authScriptPath, root.authConfDir, root.authConfPath]
+    proc.running = true
   }
 
   // ---- Bounded API requests ----
@@ -114,7 +147,13 @@ Item {
       try {
         var parsed = JSON.parse(responseText)
         if (parsed.ok === true) {
-          data = parsed.data
+          var clean = root.sanitizeResponse(tag, parsed.data)
+          if (clean === null) {
+            ok = false
+            console.warn("[super-productivity] API response rejected: malformed or out of bounds")
+          } else {
+            data = clean
+          }
         } else {
           ok = false
           console.warn("[super-productivity] API error:", JSON.stringify(parsed.error))
@@ -153,6 +192,79 @@ Item {
     var proc = requestFactory.createObject(root, { tag: tag, callback: callback })
     proc.command = ["sh", "-c", hasPayload ? root.reqScriptBody : root.reqScriptNoBody].concat(args)
     proc.running = true
+  }
+
+  // ---- Response sanitization ----
+  // Bounds the data assigned to QML models: capped task/subtask counts, capped
+  // and control-stripped strings, < > removed so no API text can trigger rich
+  // text rendering, and malformed shapes rejected (null => request error).
+  readonly property int maxTasks: 200
+  readonly property int maxSubTasks: 50
+  readonly property int maxIdLen: 64
+  readonly property int maxTitleLen: 300
+
+  function cleanText(value, max) {
+    if (typeof value !== "string") return ""
+    var s = value.replace(/[\u0000-\u001F\u007F<>]/g, "")
+    if (s.length > max) s = s.substring(0, max)
+    return s
+  }
+
+  function cleanId(value) {
+    if (value === null || value === undefined) return ""
+    return root.cleanText(String(value), root.maxIdLen)
+  }
+
+  function cleanTask(raw) {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null
+    var task = {
+      id: root.cleanId(raw.id),
+      title: root.cleanText(raw.title, root.maxTitleLen),
+      isDone: raw.isDone === true,
+      timeSpent: Math.max(0, Number(raw.timeSpent) || 0),
+      timeEstimate: Math.max(0, Number(raw.timeEstimate) || 0),
+      parentId: raw.parentId === null || raw.parentId === undefined ? null : root.cleanId(raw.parentId),
+      subTaskIds: [],
+      subtasks: []
+    }
+    if (Array.isArray(raw.subTaskIds)) {
+      for (var i = 0; i < raw.subTaskIds.length && task.subTaskIds.length < root.maxSubTasks; i++) {
+        var sid = root.cleanId(raw.subTaskIds[i])
+        if (sid !== "") task.subTaskIds.push(sid)
+      }
+    }
+    return task
+  }
+
+  function sanitizeTaskList(raw) {
+    if (!Array.isArray(raw)) return null
+    var out = []
+    for (var i = 0; i < raw.length && out.length < root.maxTasks; i++) {
+      var task = root.cleanTask(raw[i])
+      if (task !== null) out.push(task)
+    }
+    return out
+  }
+
+  function sanitizeStatus(raw) {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null
+    var status = {
+      currentTask: null,
+      currentTaskId: raw.currentTaskId === null || raw.currentTaskId === undefined
+        ? "" : root.cleanId(raw.currentTaskId),
+      taskCount: Math.max(0, Number(raw.taskCount) || 0)
+    }
+    if (raw.currentTask !== null && raw.currentTask !== undefined) {
+      status.currentTask = root.cleanTask(raw.currentTask)
+    }
+    return status
+  }
+
+  function sanitizeResponse(tag, raw) {
+    if (tag === "tasks") return root.sanitizeTaskList(raw)
+    if (tag === "status") return root.sanitizeStatus(raw)
+    if (tag === "task" || tag === "add") return root.cleanTask(raw)
+    return raw
   }
 
   function getStatus(callback) {

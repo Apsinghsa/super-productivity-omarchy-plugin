@@ -119,7 +119,7 @@ The plugin appears in your Omarchy bar. You can customize its position in `~/.co
 
 Plugins run unsandboxed with your user permissions. The token file grants full access to your Super Productivity data — do not share it.
 
-The token is never placed in a process argument list (readable by other local processes via `/proc`). `curl` reads it from a private config file (`$XDG_RUNTIME_DIR/apsingh-super-productivity-curl.conf`, mode 0600), and token file reads and API responses are size- and time-bounded.
+The token is never placed in a process argument list (readable by other local processes via `/proc`). `curl` reads it from a private config file written atomically by `write-auth-conf.sh` into a verified 0700 directory (0600 file, random name, fsync, refuses symlinked/foreign-owned locations); token file reads and API responses are size- and time-bounded. Tokens are validated as 8-128 characters of `[A-Za-z0-9_.-]` before use, so no quote, newline or control character can inject curl config directives. API responses are sanitized into a bounded schema (max 200 tasks, 50 subtasks, capped field lengths, control and markup characters stripped) before reaching the UI, and API text is rendered as plain text.
 
 ## Usage
 

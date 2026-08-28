@@ -408,6 +408,7 @@ Panel {
                 font.bold: true
                 elide: Text.ElideRight
                 width: parent.width
+                textFormat: Text.PlainText
               }
 
               Text {
@@ -714,6 +715,7 @@ Panel {
                       font.strikeout: taskRow.parent.modelData.isDone
                       elide: Text.ElideRight
                       wrapMode: Text.NoWrap
+                      textFormat: Text.PlainText
                     }
 
                     Item {
@@ -840,6 +842,7 @@ Panel {
                         font.strikeout: subtaskMouse.parent.modelData.isDone
                         elide: Text.ElideRight
                         wrapMode: Text.NoWrap
+                        textFormat: Text.PlainText
                       }
 
                       Item {
