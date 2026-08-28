@@ -156,7 +156,7 @@ Item {
           }
         } else {
           ok = false
-          console.warn("[super-productivity] API error:", JSON.stringify(parsed.error))
+          console.warn("[super-productivity] API error:", root.cleanText(JSON.stringify(parsed.error), 500))
         }
       } catch (e) {
         ok = false
@@ -212,7 +212,17 @@ Item {
 
   function cleanId(value) {
     if (value === null || value === undefined) return ""
-    return root.cleanText(String(value), root.maxIdLen)
+    var s = root.cleanText(String(value), root.maxIdLen)
+    // IDs are concatenated into URL paths (/tasks/<id>, /tasks/<id>/start);
+    // restrict to URL-safe characters so a crafted id cannot redirect the
+    // request to another endpoint or inject query/fragment data.
+    return s.replace(/[^A-Za-z0-9_-]/g, "")
+  }
+
+  function clampNumber(value) {
+    var n = Number(value)
+    if (isNaN(n)) return 0
+    return Math.max(0, Math.min(n, Number.MAX_SAFE_INTEGER))
   }
 
   function cleanTask(raw) {
@@ -221,8 +231,8 @@ Item {
       id: root.cleanId(raw.id),
       title: root.cleanText(raw.title, root.maxTitleLen),
       isDone: raw.isDone === true,
-      timeSpent: Math.max(0, Number(raw.timeSpent) || 0),
-      timeEstimate: Math.max(0, Number(raw.timeEstimate) || 0),
+      timeSpent: root.clampNumber(raw.timeSpent),
+      timeEstimate: root.clampNumber(raw.timeEstimate),
       parentId: raw.parentId === null || raw.parentId === undefined ? null : root.cleanId(raw.parentId),
       subTaskIds: [],
       subtasks: []
@@ -252,7 +262,7 @@ Item {
       currentTask: null,
       currentTaskId: raw.currentTaskId === null || raw.currentTaskId === undefined
         ? "" : root.cleanId(raw.currentTaskId),
-      taskCount: Math.max(0, Number(raw.taskCount) || 0)
+      taskCount: root.clampNumber(raw.taskCount)
     }
     if (raw.currentTask !== null && raw.currentTask !== undefined) {
       status.currentTask = root.cleanTask(raw.currentTask)
