@@ -8,8 +8,11 @@ import Quickshell.Io
 //
 // Security:
 //  - The token never appears in any process argv (procfs-visible). curl reads
-//    it from a config file written by write-auth-conf.sh: private 0700 dir,
-//    randomly named 0600 file, fsync, atomic rename, refuses unsafe locations.
+//    it from a config file published by sp-secure.py, which performs every
+//    access through held, owner-validated no-follow descriptors
+//    (openat2/RESOLVE_NO_SYMLINKS, fstat, fsync, descriptor-relative atomic
+//    rename) and refuses the operation when that boundary cannot be
+//    established.
 //  - The token is strictly validated (8-128 chars of [A-Za-z0-9_.-]), so no
 //    newline, quote or control can inject curl config directives.
 //  - Every read (token file, API response) is size- and time-bounded, and API
@@ -28,7 +31,7 @@ Item {
   readonly property string authBaseDir: Quickshell.env("XDG_RUNTIME_DIR") || Quickshell.env("HOME") + "/.cache"
   readonly property string authConfDir: root.authBaseDir + "/apsingh-super-productivity"
   readonly property string authConfPath: root.authConfDir + "/curl.conf"
-  readonly property string authScriptPath: decodeURIComponent(Qt.resolvedUrl("write-auth-conf.sh").toString().replace(/^file:\/\//, ""))
+  readonly property string authHelperPath: decodeURIComponent(Qt.resolvedUrl("sp-secure.py").toString().replace(/^file:\/\//, ""))
 
   onOverrideTokenChanged: {
     if (overrideToken !== "" && root.validToken(overrideToken)) {
@@ -45,17 +48,28 @@ Item {
   }
 
   // ---- Bounded token read ----
-  // Reads the token file through a time- and size-limited process instead of
-  // an unbounded FileView: a FIFO or oversized token file can neither block
-  // the shell (async, killed after 2s) nor exhaust its memory (capped at 4KiB).
+  // sp-secure.py opens the token source with openat2(RESOLVE_NO_SYMLINKS|
+  // O_NOFOLLOW), validates on the held descriptor that it is a regular file
+  // (FIFOs and devices are refused instead of hanging), and reads at most
+  // 4KiB.
   component TokenReader: Process {
     id: tok
 
+    property string errText: ""
+
     stdout: StdioCollector {
-      onStreamFinished: {
-        root.applyToken(text)
-        tok.destroy()
+      onStreamFinished: root.applyToken(text)
+    }
+
+    stderr: StdioCollector {
+      onStreamFinished: tok.errText = text
+    }
+
+    onExited: function(code) {
+      if (code !== 0) {
+        console.warn("[super-productivity] token read failed:", tok.errText.trim())
       }
+      tok.destroy()
     }
   }
 
@@ -76,7 +90,7 @@ Item {
   function readToken() {
     if (root.overrideToken !== "") return
     var proc = tokenReaderFactory.createObject(root)
-    proc.command = ["timeout", "2", "head", "-c", "4096", root.tokenFilePath]
+    proc.command = ["python3", root.authHelperPath, "read", root.tokenFilePath]
     proc.running = true
   }
 
@@ -94,8 +108,9 @@ Item {
   }
 
   // ---- curl auth config file ----
-  // write-auth-conf.sh receives the token on stdin (never argv), validates
-  // it, and writes it atomically into a verified-private directory.
+  // sp-secure.py receives the token on stdin (never argv), validates it, and
+  // publishes it descriptor-relative into a verified-private directory,
+  // refusing the operation when that boundary cannot be established.
   component AuthWriter: Process {
     id: w
 
@@ -125,7 +140,7 @@ Item {
   function writeAuthConf() {
     if (!root.validToken(root.token)) return
     var proc = authWriterFactory.createObject(root)
-    proc.command = [root.authScriptPath, root.authConfDir, root.authConfPath]
+    proc.command = ["python3", root.authHelperPath, "write", root.authConfDir, "curl.conf"]
     proc.running = true
   }
 

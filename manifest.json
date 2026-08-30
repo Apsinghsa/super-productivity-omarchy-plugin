@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "apsingh.super-productivity",
   "name": "Super Productivity",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "author": "apsingh",
   "license": "MIT",
   "description": "Task management for the bar, backed by Super Productivity's local REST API",

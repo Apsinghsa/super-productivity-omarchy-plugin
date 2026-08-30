@@ -51,6 +51,7 @@ Navigate efficiently without touching your mouse:
 - Omarchy Linux desktop environment
 - [Super Productivity](https://super-productivity.com/) app running
 - Super Productivity REST API enabled (Settings > Misc > Enable local REST API)
+- `curl` and `python3` (python3 ships with Omarchy)
 
 ## Installation
 
@@ -119,7 +120,7 @@ The plugin appears in your Omarchy bar. You can customize its position in `~/.co
 
 Plugins run unsandboxed with your user permissions. The token file grants full access to your Super Productivity data — do not share it.
 
-The token is never placed in a process argument list (readable by other local processes via `/proc`). `curl` reads it from a private config file written atomically by `write-auth-conf.sh` into a verified 0700 directory (0600 file, random name, fsync, refuses symlinked/foreign-owned locations); token file reads and API responses are size- and time-bounded. Tokens are validated as 8-128 characters of `[A-Za-z0-9_.-]` before use, so no quote, newline or control character can inject curl config directives. API responses are sanitized into a bounded schema (max 200 tasks, 50 subtasks, capped field lengths, control and markup characters stripped) before reaching the UI, and API text is rendered as plain text.
+The token is never placed in a process argument list (readable by other local processes via `/proc`). `curl` reads it from a private config file published by `sp-secure.py`, which performs every access through held, owner-validated no-follow descriptors (`openat2` with `RESOLVE_NO_SYMLINKS`/`O_NOFOLLOW`, `fstat` owner and mode checks, `fsync`, descriptor-relative atomic rename into a verified 0700 directory) and refuses the operation when that boundary cannot be established; the token source itself is opened the same way and must be a regular file. Token file reads and API responses are size- and time-bounded. Tokens are validated as 8-128 characters of `[A-Za-z0-9_.-]` before use, so no quote, newline or control character can inject curl config directives. API responses are sanitized into a bounded schema (max 200 tasks, 50 subtasks, capped field lengths, control and markup characters stripped) before reaching the UI, and API text is rendered as plain text.
 
 ## Usage
 
