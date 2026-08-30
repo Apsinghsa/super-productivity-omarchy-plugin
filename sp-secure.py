@@ -16,6 +16,8 @@ import errno
 import os
 import re
 import secrets
+import select
+import signal
 import stat as statmod
 import struct
 import sys
@@ -114,9 +116,28 @@ def _open_dir_bound(path):
     return _openat2(AT_FDCWD, path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
 
 
+# Temp file state for signal-based cleanup: a killed helper must not leave a
+# credential-bearing temp file behind.
+_TMP_STATE = {"dirfd": None, "tmp": None}
+
+
+def _signal_cleanup(signum, frame):
+    if _TMP_STATE["tmp"] is not None and _TMP_STATE["dirfd"] is not None:
+        try:
+            _unlinkat(_TMP_STATE["dirfd"], _TMP_STATE["tmp"])
+        except OSError:
+            pass
+    raise SystemExit(1)
+
+
 def cmd_write(dir_path, final_name):
     if not final_name or "/" in final_name or final_name in (".", ".."):
         raise OSError(errno.EINVAL, "invalid final file name")
+    # Bounded wait for the token on stdin so a stuck pipe cannot leak a
+    # process. readline is capped too; a partial line fails the grammar check.
+    ready, _, _ = select.select([sys.stdin], [], [], 5)
+    if not ready:
+        raise OSError(errno.ETIMEDOUT, "timed out waiting for token on stdin")
     token = sys.stdin.readline(256).rstrip("\n")
     if not TOKEN_RE.match(token):
         raise OSError(errno.EINVAL, "token rejected: expected 8-128 chars of [A-Za-z0-9_.-]")
@@ -133,6 +154,7 @@ def cmd_write(dir_path, final_name):
             os.fchmod(dirfd, 0o700)  # privatize the held directory
 
         tmp = ".auth-" + secrets.token_hex(8)
+        _TMP_STATE.update(dirfd=dirfd, tmp=tmp)
         tmpfd = _openat2(dirfd, tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode=0o600)
         try:
             os.fchmod(tmpfd, 0o600)
@@ -144,6 +166,7 @@ def cmd_write(dir_path, final_name):
         # Descriptor-relative atomic replacement: renames within dirfd, never
         # follows a symlink planted at the final name.
         _renameat2(dirfd, tmp, dirfd, final_name)
+        _TMP_STATE["tmp"] = None
         try:
             os.fsync(dirfd)
         except OSError:
@@ -168,6 +191,9 @@ def main(argv):
         elif argv[1] == "write":
             if len(argv) != 4:
                 raise OSError(errno.EINVAL, "write takes a directory and a file name")
+            signal.signal(signal.SIGTERM, _signal_cleanup)
+            signal.signal(signal.SIGINT, _signal_cleanup)
+            signal.signal(signal.SIGHUP, _signal_cleanup)
             cmd_write(argv[2], argv[3])
         else:
             raise OSError(errno.EINVAL, "unknown subcommand: %r" % argv[1])
