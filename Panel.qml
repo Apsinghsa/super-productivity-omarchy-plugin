@@ -908,6 +908,7 @@ Panel {
           placeholderText: "Add a task for today…"
           foreground: root.contentForeground
           font.family: root.contentFontFamily
+          maximumLength: 500
 
           Keys.onPressed: function(event) {
             if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
