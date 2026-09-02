@@ -30,9 +30,6 @@ Panel {
   property int selectedIndex: 0
   property bool cursorActive: false
   
-  // Time display toggle
-  property bool showRemainingTime: false
-
   readonly property real currentProgress: currentTimeEstimate > 0 ? Math.min(1, currentTimeSpent / currentTimeEstimate) : 0
   readonly property int remainingTime: currentTimeEstimate - currentTimeSpent
   
@@ -120,10 +117,6 @@ Panel {
   }
 
   function onStatusUpdate(ok, data) {
-    showRemainingTime = false
-    if (hostWidget) {
-      hostWidget.showRemainingTime = false
-    }
     if (ok && data && data.currentTask) {
       currentTaskId = String(data.currentTask.id || "")
       currentTitle = String(data.currentTask.title || "")
@@ -437,7 +430,6 @@ Panel {
                 onClicked: {
                   if (hostWidget) {
                     hostWidget.toggleTimeDisplay()
-                    showRemainingTime = hostWidget.showRemainingTime
                   }
                 }
               }
