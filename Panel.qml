@@ -328,6 +328,21 @@ Panel {
         width: parent.width
         spacing: Style.space(10)
 
+        // Height of everything except the task list (spacing included). The
+        // panel is capped and does not scroll, so the list gets only what is
+        // left and the "Add a task" field below it is never pushed out of view.
+        readonly property real otherChildrenHeight: {
+          var h = 0
+          for (var i = 0; i < children.length; i++) {
+            var child = children[i]
+            if (child !== taskListFlick && child.visible) h += child.height + spacing
+          }
+          return h
+        }
+        readonly property real maxListHeight: Math.max(Style.space(120),
+          Math.min(Style.space(600), panel.availableCardHeight > 0 ? panel.availableCardHeight : Style.space(600))
+            - panel.verticalContentInset - otherChildrenHeight)
+
         Item {
           width: parent.width
           height: headerLabel.implicitHeight
@@ -595,8 +610,9 @@ Panel {
         }
 
         Flickable {
+          id: taskListFlick
           width: parent.width
-          height: Math.min(taskListColumn.implicitHeight, Style.space(400))
+          height: Math.min(taskListColumn.implicitHeight, Style.space(400), contentColumn.maxListHeight)
           contentWidth: width
           contentHeight: taskListColumn.implicitHeight
           clip: true
