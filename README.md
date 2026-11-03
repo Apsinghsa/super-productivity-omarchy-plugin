@@ -214,6 +214,14 @@ omarchy restart shell
 
 ## Contributing
 
+Run the task-list regression tests with Node.js (no additional packages required):
+
+```bash
+node --test tests/task-list.test.cjs
+```
+
+The tests execute the task-list callback extracted from `Panel.qml` using sanitized task fixtures.
+
 Contributions are welcome! Feel free to:
 - Report bugs
 - Suggest features
