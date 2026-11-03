@@ -153,8 +153,13 @@ Panel {
       var task = list[i]
       // Skip current task
       if (currentTaskId !== "" && String(task.id) === currentTaskId) continue
-      // Skip subtasks (they'll be attached to parents)
-      if (task.parentId !== null && task.parentId !== undefined) continue
+      // Hide a subtask row only when it will be attached to a visible parent.
+      // Today may return a child without its parent; a running or filtered-out
+      // parent must not make its children disappear either.
+      var parentTask = task.parentId ? taskMap[task.parentId] : null
+      if (parentTask && String(parentTask.id) !== currentTaskId
+          && (filterMode !== "completed" || parentTask.isDone)
+          && parentTask.subTaskIds && parentTask.subTaskIds.indexOf(task.id) !== -1) continue
       // Apply filter
       if (filterMode === "completed" && !task.isDone) continue
       
